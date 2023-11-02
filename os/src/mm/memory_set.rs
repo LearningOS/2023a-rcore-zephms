@@ -63,12 +63,37 @@ impl MemorySet {
             None,
         );
     }
+    /// remove framed from the current Application address space
+    pub fn remove_framed_area(
+        &mut self,
+        start_va: VirtAddr,
+        end_va: VirtAddr
+    ) -> isize {
+        self.pop(start_va, end_va)
+    }
     fn push(&mut self, mut map_area: MapArea, data: Option<&[u8]>) {
         map_area.map(&mut self.page_table);
         if let Some(data) = data {
             map_area.copy_data(&mut self.page_table, data);
         }
         self.areas.push(map_area);
+    }
+    fn pop(&mut self, start: VirtAddr, end: VirtAddr) -> isize{
+        let addr: VirtAddr = (4097 as usize).into();
+        let addr1: VirtAddr = (4096 as usize).into();
+        debug!("addr floor {:?}, ceil {:?}", addr.floor(), addr.ceil());
+        debug!("addr1 floor{:?}, ceil {:?}", addr1.floor(), addr1.ceil());
+        if let Some(index) = self.areas.iter().position(|x| 
+            x.vpn_range.get_start() == start.floor()
+            && x.vpn_range.get_end() == end.ceil() && start.aligned()
+        ) {
+            debug!("x.vpnrange start{:?}, end {:?}", self.areas[index].vpn_range.get_start(),
+            self.areas[index].vpn_range.get_end());
+            let mut reomved_map_area = self.areas.swap_remove(index);
+            reomved_map_area.unmap(&mut self.page_table); 
+            return 0;
+        }
+        -1
     }
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
@@ -261,6 +286,22 @@ impl MemorySet {
         } else {
             false
         }
+    }
+
+    /// find the area IS vailed to the Memory_set
+    #[allow(unused)]
+    pub fn find_overlap(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        let start = start.floor();
+        let end = end.ceil();
+
+        for area in &self.areas {
+            let existing_start = area.vpn_range.get_start();
+            let existing_end = area.vpn_range.get_end();
+            if start < existing_end && end > existing_start {
+                return true;
+            }
+        }
+        false
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory

@@ -31,6 +31,10 @@ pub struct TaskControlBlock {
 }
 
 impl TaskControlBlock {
+    /// get the task status
+    pub fn get_task_status(&self) -> TaskStatus {
+        self.task_status
+    }
     /// get the trap context
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
@@ -92,6 +96,40 @@ impl TaskControlBlock {
         if result {
             self.program_brk = new_brk as usize;
             Some(old_break)
+        } else {
+            None
+        }
+    }
+    /// Maping the [Virtual address range] to Application Address Space
+    pub fn map_viraddr_ass(&mut self, start: VirtAddr, end: VirtAddr, port: usize) -> Option<usize> {
+        debug!("1. start: {:?}, end: {:?}, prot: {:#}, aligned: {}", start, end, port, start.aligned());
+        if self.memory_set.find_overlap(start, end) || (port & !0x7) != 0
+            || (port & 0x7) == 0 || !start.aligned() {
+                debug!("2. start: {:?}, end: {:?}, port: {:#}", start, end, port);
+                return None;
+            }
+        let mut permission: MapPermission = MapPermission::U;
+        // read
+        if (port & 1) == 1 {
+            permission |= MapPermission::R;
+        }
+        // write
+        if (port & 2) == 2 {
+            permission |= MapPermission::W;
+        }
+        // execute
+        if (port & 3) == 3 {
+            permission |= MapPermission::X;
+        }
+        debug!("3. mmap start: {:?}, end: {:?} prot: {:#}", start, end, port);
+        self.memory_set.insert_framed_area(start, end, permission);
+        Some(1)
+    }
+    /// Unmapping the [Virtual address range] to Application Address Space
+    pub fn unmap_viraddr_ass(&mut self, start: VirtAddr, end: VirtAddr) -> Option<usize> {
+        let result = self.memory_set.remove_framed_area(start, end);
+        if result == 0 {
+            Some(0)
         } else {
             None
         }
