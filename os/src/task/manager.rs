@@ -1,9 +1,12 @@
 //!Implementation of [`TaskManager`]
 use super::TaskControlBlock;
 use crate::sync::UPSafeCell;
+use crate::config::BIG_STRIDE;
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use lazy_static::*;
+
+#[allow(unused)]
 ///A array of `TaskControlBlock` that is thread-safe
 pub struct TaskManager {
     ready_queue: VecDeque<Arc<TaskControlBlock>>,
@@ -27,10 +30,43 @@ impl TaskManager {
     }
 }
 
+pub struct StrideManager {
+    ready_queue: VecDeque<Arc<TaskControlBlock>>,
+}
+
+/// A simple Stride scheduler
+impl StrideManager {
+    /// Create an empty StrideManager
+    pub fn new() -> Self {
+        Self {
+            ready_queue: VecDeque::new(), 
+        }
+    }
+    /// Add process to ready queue
+    pub fn add(&mut self, task: Arc<TaskControlBlock>) {
+        self.ready_queue.push_back(task);
+    }
+    /// Take a process out of the ready queue
+    pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
+        let mut index = 0;
+        let mut stride = usize::MAX;
+        for (idx, task) in self.ready_queue.iter().enumerate() {
+            if (task.get_stride() - stride) as isize >= 0 {
+                continue;
+            } else {
+                stride = task.get_stride();
+                index = idx;
+            }
+        }
+        self.ready_queue.remove(index)
+    }
+}
+
+
 lazy_static! {
     /// TASK_MANAGER instance through lazy_static!
-    pub static ref TASK_MANAGER: UPSafeCell<TaskManager> =
-        unsafe { UPSafeCell::new(TaskManager::new()) };
+    pub static ref TASK_MANAGER: UPSafeCell<StrideManager> =
+        unsafe { UPSafeCell::new(StrideManager::new()) };
 }
 
 /// Add process to ready queue
@@ -39,8 +75,13 @@ pub fn add_task(task: Arc<TaskControlBlock>) {
     TASK_MANAGER.exclusive_access().add(task);
 }
 
-/// Take a process out of the ready queue
+/// Take a process out of the ready queue and plus the pass to stride
 pub fn fetch_task() -> Option<Arc<TaskControlBlock>> {
     //trace!("kernel: TaskManager::fetch_task");
-    TASK_MANAGER.exclusive_access().fetch()
+    if let Some(task) = TASK_MANAGER.exclusive_access().fetch() {
+        let pass = BIG_STRIDE / task.get_priority();
+        task.add_stride(pass);
+        return Some(task);
+    }
+    None
 }

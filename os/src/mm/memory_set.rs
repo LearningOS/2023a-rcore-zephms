@@ -72,6 +72,23 @@ impl MemorySet {
             self.areas.remove(idx);
         }
     }
+    /// remove a area, but sepcify the range [start, end)
+    pub fn unmap_area_with_range(&mut self, start: VirtAddr, end: VirtAddr) -> isize{
+        debug!("start: {:?}, end: {:?}, aligned: {}", start, end, start.aligned());
+        if let Some((idx, area)) = self
+            .areas
+            .iter_mut()
+            .enumerate()
+            .find(|(_, area)| area.vpn_range.get_start() == start.floor() &&
+                area.vpn_range.get_end() == end.ceil() && start.aligned())
+        {
+            debug!("vpn_range start: {:?}, end: {:?}", area.vpn_range.get_start(), area.vpn_range.get_end());
+            area.unmap(&mut self.page_table);
+            self.areas.remove(idx);
+            return 0;
+        }
+        -1
+    }
     /// Add a new MapArea into this MemorySet.
     /// Assuming that there are no conflicts in the virtual address
     /// space.
@@ -299,6 +316,20 @@ impl MemorySet {
         } else {
             false
         }
+    }
+
+    /// find overlap area
+    pub fn find_overlap(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        let start = start.floor();
+        let end = end.ceil();
+        for area in &self.areas {
+            let existing_start = area.vpn_range.get_start();
+            let existing_end = area.vpn_range.get_end();
+            if start < existing_end && existing_start < end {
+                return true;
+            } 
+        }
+        false
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory
